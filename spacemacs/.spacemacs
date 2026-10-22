@@ -61,34 +61,36 @@ This function should only modify configuration layer settings."
      syntax-checking
      version-control
      git
-     csv
      python
      yaml
      markdown
      ;; mermaid &&& not recognized
      shell-scripts
      (shell :variables
-            shell-default-height 20
-            shell-default-position 'bottom
+            shell-default-height 30
+            shell-default-position 'right
             shell-default-shell 'shell)
      (conda :variables
             conda-anaconda-home "~/conda")
      (ess
       :variables ess-r-backend 'lsp)
-     (llm-client :variables
-                 llm-client-enable-gptel t)
-
                                         ; lisp layers
      emacs-lisp
      common-lisp
      parinfer
      ;; (scheme :variables scheme-implementations '(guile))
 
+                                        ; llm layers
+     (llm-client :variables
+                 llm-client-enable-gptel t)
+
                                         ; data layers
      csv
      markdown
-     pdf
      finance
+     pdf
+
+                                        ; academic layers
                                         ; writing layers
      (org
       :variables
@@ -634,38 +636,350 @@ Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
 
-  ;; ;; mermaid executable
+  ;;;; mermaid executable
   ;; (setq ob-mermaid-cli-path "/home/user/.var/app/org.gnu.emacs/data/node/bin/mmdc")
 
-  ;; ;;paren balance
+  ;;;; structural editing and parentheses management
+  ;; enable evil-cleverparens structural editing
+  ;; https://practical.li/spacemacs/structural-editing/cleverparens/
   ;; (spacemacs/toggle-evil-safe-lisp-structural-editing-on-register-hooks)
+  ;; smartparens above should be on and strict
+  ;; https://smartparens.readthedocs.io/en/latest/
+  ;; &&&parinfer
+  ;; https://shaunlebron.github.io/parinfer/
+  ;; highlight parentheses by scope
+  (remove-hook 'prog-mode-hook #'rainbow-delimiters-mode)
+  (add-hook 'prog-mode-hook #'highlight-parentheses-mode)
 
-  ;; ;; default browser
+  ;; turn on editorconfig
+  (editorconfig-mode 1)
+
+  ;;;; default browser
   ;; (setq browse-url-browser-function 'browse-url-generic)
   ;; (setq browse-url-generic-program "nyxt")
 
-  ;; ;; auto update changed buffers
+  ;;;; auto update changed buffers
   ;; (global-auto-revert-mode) ; keep buffers up to date with disks
   ;; (setq auto-revert-use-notify nil) ; poll disk dont wait for os
   ;; (auto-save-visited-mode) ; make auto save same as explicit save
 
-  ;; ;; orgmode settings
-  (setq org-agenda-files '("~/mnt/db/1/org" "~/org"))
-  (setq org-refile-targets '((nil :maxlevel . 3)
-                             (org-agenda-files :maxlevel . 3)))
+  ;;;; orgmode agenda files
+  ;; set all after opening any *.org
+  (with-eval-after-load 'org
+    (setq org-agenda-files
+          (directory-files-recursively
+           (expand-file-name "~/org/") "\\.org$")))
 
-  ;; qlot
-  ;; (setq slime-lisp-implementations
-  ;;       '((qlot ("qlot" "exec" "sbcl") :coding-system utf-8-unix)
-  ;;         (qlot-32G-heap ("qlot" "exec" "sbcl" "--dynamic-space-size" "32768") :coding-system utf-8-unix)
-  ;;         (sbcl ("sbcl") :coding-system utf-8-unix)))
+  ;;;; refiling
+  (setq org-refile-targets '((nil :maxlevel . 5)
+                             (org-agenda-files :maxlevel . 5))) ;; target depths
+  (setq org-refile-use-outline-path 'file) ;; breadcrumb-style outline paths
+  (setq org-outline-path-complete-in-steps nil) ;; nil to show the full path in a single completion prompt
+  (setq org-refile-allow-creating-parent-nodes 'confirm) ;; create new parent nodes on the fly
 
-  ;;calfw settings
-  (require 'calfw-org)
-                                        ; &&& keybindings
-  (spacemacs/set-leader-keys "aov" 'cfw:open-org-calendar)
+  ;;;; Org Tree Slide presentation
+  ;; https://github.com/takaxp/org-tree-slide
 
-  ;; ;;gnus settings
+  (add-hook 'org-mode-hook (lambda () (variable-pitch-mode -1))) ; &&& temp force org to fixed pitch
+
+  (use-package org-tree-slide
+    :ensure t
+    :after org
+
+    :hook (;; org-tree-slide-play-hook
+           (org-tree-slide-play . my/presentation-start)
+           ;; org-tree-slide-stop-hook
+           (org-tree-slide-stop . my/presentation-end))
+    ;; org-tree-slide-after-narrow-hook
+    ;; (org-tree-slide-after-narrow . my/presentation-prepare-slide)
+    ;; org-tree-slide-before-narrow-hook
+    ;; org-tree-slide-before-move-next-hook
+    ;; org-tree-slide-before-move-previous-hook
+
+    :custom
+    ;; init
+    (org-tree-slide-cursor-init nil) ;; nil: start at cursor
+    (org-image-actual-width nil)
+    (org-tree-slide-activate-message "Presentation started!")
+    (org-tree-slide-deactivate-message "Presentation finished!")
+    ;; header
+    (org-tree-slide-header t)
+    (org-tree-slide-breadcrumbs " > ")
+    (org-tree-slide-breadcrumbs-hide-todo-state t)
+    (org-tree-slide-indicator '(:next "Next >>" :previous "<< Previous" :content "<< CONTENT >>"))
+    ;; slide
+    (org-tree-slide-slide-in-effect nil)
+    (org-tree-slide-slide-in-waiting 0.02 Float)
+    (org-tree-slide-slide-in-blank-lines 10)
+    ;; folding
+    (org-tree-slide-fold-subtrees-skipped nil)
+    ;; appearance
+    (org-tree-slide-heading-emphasis t)
+    (org-tree-slide-never-touch-face t)
+    (org-tree-slide-modeline-display 'outside)
+    ;; skips
+    (org-tree-slide-skip-outline-level 0)
+    (org-tree-slide-skip-done nil)
+    (org-tree-slide-skip-comments t)
+    :config
+    ;;fonts
+    (defun my/find-first-font (candidates)
+      "Return the first font from CANDIDATES available on this system."
+      (cl-find-if (lambda (f) (member f (font-family-list))) candidates))
+
+    (defvar my/presentation-fixed-font
+      (my/find-first-font '("JetBrains Mono" "Fira Code" "Source Code Pro" "Consolas"))
+      "Monospaced font for presentation code blocks.")
+
+    (defvar my/presentation-variable-font
+      (my/find-first-font '("Iosevka Aile" "Libre Baskerville" "Georgia" "DejaVu Serif" "DejaVu Sans"))
+      "Variable-pitch font for presentation body text.")
+
+    (defun my/presentation-setup-faces ()
+      "Apply org face styling locally for the duration of the presentation."
+
+      (require 'org-faces)
+
+      (setq-local face-remapping-alist
+                  `(;; root faces
+                    (default (:family ,my/presentation-variable-font :weight light :height 190))
+                    (variable-pitch (:height 1.0))
+                    (fixed-pitch (:family ,my/presentation-fixed-font :height 1.1))
+                    ;; variable children
+                    (header-line (:height 2.0 :inherit variable-pitch))
+                    (org-document-title (:height 1.75 :inherit variable-pitch))
+                    (org-verbatim (:height 1.55 :inherit (shadow variable-pitch)))
+                    ;; fixed children
+                    (org-table (:inherit fixed-pitch))
+                    (org-formula (:inherit fixed-pitch))
+                    (org-checkbox (:inherit fixed-pitch))
+                    (org-block            (:height 1.25 :inherit fixed-pitch))
+                    (org-block-begin-line (:height 0.7 :inherit fixed-pitch))
+                    (org-code             (:height 1.55 :inherit (shadow fixed-pitch)))
+                    (org-special-keyword (:inherit (font-lock-comment-face fixed-pitch)))
+                    (org-meta-line (:foreground ,(face-attribute 'default :background) :inherit (font-lock-comment-face fixed-pitch)))
+                    ;; levels
+                    (org-level-1 (:height 1.2 :weight medium :inherit variable-pitch))
+                    (org-level-2 (:height 1.1 :weight medium :inherit variable-pitch))
+                    (org-level-3 (:height 1.1 :weight medium :inherit variable-pitch))
+                    (org-level-4 (:height 1.0 :weight medium :inherit variable-pitch))
+                    (org-level-5 (:height 1.0 :weight medium :inherit variable-pitch))
+                    (org-level-6 (:height 1.0 :weight medium :inherit variable-pitch))
+                    (org-level-7 (:height 1.0 :weight medium :inherit variable-pitch))
+                    (org-level-8 (:height 1.0 :weight medium :inherit variable-pitch)))))
+    ;; events
+    (defun my/presentation-start ()
+      ;; save original state
+      (setq-local my/presentation-original-alpha (frame-parameter (selected-frame) 'alpha))
+      (setq-local my/presentation-original-face-remapping-alist face-remapping-alist)
+      (setq-local my/presentation-original-org-hide-emphasis-markers (default-value 'org-hide-emphasis-markers))
+      (setq-local my/presentation-original-header-line-format header-line-format)
+
+      ;; Let the desktop background show through
+      (set-frame-parameter (selected-frame) 'alpha '(95 . 100))
+
+      ;; Apply face remappings
+      (variable-pitch-mode 1)
+      (my/presentation-setup-faces)
+
+      (setq-local org-hide-emphasis-markers t)
+      (setq-local header-line-format " ")
+
+      (setq-local visual-fill-column-center-text t)
+      (setq-local visual-fill-column-width 90)
+
+      ;; set modes
+      (display-line-numbers-mode -1)
+      (visual-fill-column-mode 1)
+      (visual-line-mode 1)
+      (org-display-inline-images)
+      (hide-mode-line-mode 1)
+      ;; force redisplay
+      (redraw-display))
+
+    (defun my/presentation-prepare-slide ()
+      "Collapse buffer to overview, then reveal only the current slide.")
+    ;; ;; Show only top-level headlines
+    ;; (org-overview)
+    ;; ;; Unfold the current entry
+    ;; (org-show-entry)
+    ;; ;; Show only direct subheadings of the slide but don't expand them
+    ;; (org-show-children)
+    ;;(print "placeholder&&&"))
+
+    (defun my/presentation-end ()
+      ;; restore settings
+      (set-frame-parameter (selected-frame) 'alpha my/presentation-original-alpha)
+      (setq-local face-remapping-alist my/presentation-original-face-remapping-alist)
+      (setq-local org-hide-emphasis-markers my/presentation-original-org-hide-emphasis-markers)
+      (setq-local header-line-format my/presentation-original-header-line-format)
+
+      ;; Clear all buffer-local variables set during presentation
+      (kill-local-variable my/presentation-original-alpha)
+      (kill-local-variable 'my/presentation-original-face-remapping-alist)
+      (kill-local-variable 'my/presentation-original-org-hide-emphasis-markers)
+      (kill-local-variable 'my/presentation-original-header-line-format)
+
+      (kill-local-variable 'visual-fill-column-center-text)
+      (kill-local-variable 'visual-fill-column-width)
+
+      ;; Turn off modes
+      (display-line-numbers-mode 1)
+      (variable-pitch-mode 0)
+      (visual-fill-column-mode 0)
+      (visual-line-mode 0)
+      (org-remove-inline-images)
+      (hide-mode-line-mode 0)
+      ;; force refresh
+      (redraw-display))
+
+    :bind
+    (:map org-tree-slide-mode-map
+          ("<S-left>" . org-tree-slide-content)
+          ("<M-up>" . beginning-of-buffer)
+          ("<M-down>" . end-of-buffer)
+          ("<M-right>" . org-tree-slide-move-next-tree)
+          ("<M-left>" . org-tree-slide-move-previous-tree)
+          ("M-q" . org-tree-slide-mode)))
+  ;;;; end presentation
+
+  ;;;; org agenda
+  (setq org-todo-keywords
+        ;; #+TODO: TODO ready-to-start ACTIVE waiting-on | needs-review DONE
+        '((sequence "TODO(t)" "ready-to-start(!)" "ACTIVE(a!)" "waiting-on(w@/!)" "|" "needs-review" "DONE(d!)")))
+
+  (setq org-clock-in-switch-to-state "ACTIVE")
+
+  (setq org-clock-out-when-done '("TODO" "ready-to-start" "waiting-on" "DONE" "needs-review"))
+
+  (setq org-agenda-custom-commands
+        '(;;
+          ("t" "tagging"
+           (;;
+            (tags-todo "+@james"
+                       ((org-agenda-overriding-header "James Tasks")))
+            ;;
+            (tags-todo "+@ana"
+                       ((org-agenda-overriding-header "Ana Tasks")))
+            ;;
+            (tags-todo "-{.*}"
+                       ((org-agenda-overriding-header "Untagged Tasks")))))
+          ;;
+          ("d" "Daily Agenda"
+           ((agenda "" ((org-agenda-span 'day)
+                        (org-deadline-warning-days 7)))
+            (tags-todo "+PRIORITY=\"A\""
+                       ((org-agenda-overriding-header "High Priority Tasks")))))
+          ;;
+          ("r" "Weekly Review"
+           ((agenda ""
+                    ((org-agenda-overriding-header "Completed Tasks")
+                     (org-agenda-skip-function '(org-agenda-skip-entry-if 'nottodo 'done))
+                     (org-agenda-span 'week)))
+
+            (agenda ""
+                    ((org-agenda-overriding-header "Unfinished Scheduled Tasks")
+                     (org-agenda-skip-function '(org-agenda-skip-entry-if 'todo 'done))
+                     (org-agenda-span 'week)))))
+          ;;
+          ("w" "whats important now"
+           ;; DONE
+           ((todo "DONE"
+                  ((org-agenda-overriding-header "Completed (cutoff 12d)")
+                   (org-agenda-skip-function
+                    '(when (closed-old-p 12)
+                       (org-end-of-subtree t)))
+                   (org-agenda-sorting-strategy '(priority-down))))
+            ;; needs-review
+            (todo "needs-review"
+                  ((org-agenda-overriding-header "Completed (pending review)")
+                   (org-agenda-sorting-strategy '(priority-down))))
+            ;; waiting-on
+            (todo "waiting-on"
+                  ((org-agenda-overriding-header "Blocked")
+                   (org-agenda-sorting-strategy '(priority-down))))
+            ;; ACTIVE
+            (todo "ACTIVE"
+                  ((org-agenda-overriding-header "Whats Important Now")
+                   (org-agenda-sorting-strategy '(priority-down))))
+            ;; ready-to-start
+            (todo "ready-to-start"
+                  ((org-agenda-overriding-header "Soon")
+                   (org-agenda-sorting-strategy '(priority-down))))
+            ;; TODO
+            (todo "TODO"
+                  ((org-agenda-overriding-header "Later")
+                   (org-agenda-sorting-strategy '(priority-down))))))))
+
+  (setq org-agenda-tag-filter-preset '("-noexport"))
+
+  (defun closed-old-p (days)
+    "t if current entry is closed and older than days"
+    (let ((closed (org-entry-get (point) "CLOSED")))
+      (when closed
+        (let* ((closed-time (org-time-string-to-time closed))
+               (days-seconds (* days 24 60 60))
+               (cutoff-time (time-subtract (current-time) days-seconds))
+               (ret-value (time-less-p closed-time cutoff-time)))
+          ret-value))))
+
+  (setq org-agenda-prefix-format
+        '((agenda . " %i %-12:c%?-12t% s")
+          (timeline . "  % s")
+          ;; (todo   . " %i %-12:c %b") ;; default
+          (todo   . " %i %b")
+          (tags   . " %i %-12:c")
+          (search . " %i %-12:c")))
+
+  (setq org-tag-alist
+        '(;; Places
+          ;; ("@main" . ?M)
+          ;; ("@barley" . ?B)
+          ;; Devices
+          ;; ("@gpsc" . ?g)
+          ;; ("@lablinux" . ?l)
+          ;; document control
+          ("noexport" . ?X)
+          ("nofinalexport" . ?x)
+          ;; People
+          ("@james" . ?J)
+          ("@ana" . ?A)
+          ("@tayab" . ?T)
+          ("@danny" . ?D)
+          ("@bryan" . ?B)
+          ("@nevya" . ?N)
+          ;; Activities
+          ("@architecture" . ?a)
+          ("@janitorial" . ?j)
+          ("@on-fire" . ?f)
+          ("@wizardry" . ?w)
+          ("@programming" . ?p)
+          ("@communication" . ?c)
+          ("@repeats" . ?r)
+          ("@learning" . ?l)))
+  ;;;; end org agenda
+
+  ;;;; allow slime/common lisp to talk to emacs
+  ;; (setq slime-enable-evaluate-in-emacs t) ;; enables lisp to execute arbitrary code in emacs. dangerously cool
+
+  ;;;; lisp implementations
+  ;; start the first found in the list: M-x slime
+  ;; select an implementation from the list: M-- M-x slime &&&
+  (setq slime-lisp-implementations
+        '((sbcl ("sbcl") :coding-system utf-8-unix)
+          (sbcl-32G-heap ("sbcl""--dynamic-space-size" "32768") :coding-system utf-8-unix)
+          ;; (qlot ("qlot" "exec" "sbcl") :coding-system utf-8-unix)
+          ;; (qlot-32G-heap ("qlot" "exec" "sbcl" "--dynamic-space-size" "32768") :coding-system utf-8-unix)
+          ;; (cmucl ("cmucl" "-quiet"))
+          ;; (ccl  ("ccl64" "-K" "utf-8"))
+          ;; (ecl  ("ecl"))
+          ;; (abcl ("abcl"))
+          (sbcl ("sbcl") :coding-system utf-8-unix)))
+
+  ;;;; calfw calendar
+  (spacemacs/set-leader-keys "aov" 'calfw-open-calendar-buffer)
+
+  ;;;; gnus
   ;;                                       ; set variables
   ;; (setq user-full-name "user"
   ;;       user-mail-address "user@gmail.com")
@@ -695,26 +1009,29 @@ before packages are loaded."
   ;;         ((header "to" "user@gmail.com") ;set return email address
   ;;          (address "user@gmail.com"))))
   ;;                                       ;store email in a directory
-  ;; (setq nnml-directory "~/db/1/email")
-  ;; (setq message-directory "~/db/1/email")
+  ;; (setq nnml-directory "~/email")
+  ;; (setq message-directory "~/email")
+  ;;;; end gnus
 
-  ;; ;; gptel settings
-  ;; (require 'gptel)
-  ;;                                       ;make a default model
-  ;; (setq
-  ;;  gptel-model "claude-sonnet-4-5"
-  ;;  gptel-backend (gptel-make-anthropic "claude"
-  ;;                  :stream t :key "key"))
-  ;;                                       ;register a backend
-  ;; (gptel-make-ollama "ollama"             ;Any name of your choosing
-  ;;   :host "localhost:11434"               ;Where it's running
-  ;;   :stream t                             ;Stream responses
-  ;;   :models '("zephyr" "ollama3"))        ;List of models
-                                        ;default
+  ;; ;;;; gptel
+  ;; ;; make a default model
+  ;; (setq gptel-model "claude-sonnet-4-5"
+  ;;       gptel-backend (gptel-make-anthropic "claude"
+  ;;                       :stream t
+  ;;                       :key "key&&&"))
+
+  ;; ;; register a backend
+  ;; ;; (gptel-make-ollama "ollama" ; Any name of your choosing
+  ;; ;;   :host "localhost:11434" ; Where it's running
+  ;; ;;   :stream t ;Stream responses
+  ;; ;;   :models '("zephyr" "ollama3" ; List of models
+  ;; ;;             default))
+
+  ;; ;; default format
   ;; (setq gptel-default-mode "org-mode")
-                                        ;keybindings
-  ;; (spacemacs/set-leader-keys "os" 'gptel-send)
-  ;; (spacemacs/set-leader-keys "om" 'gptel-menu)
+
+  ;; ;; keybindings
+  ;; (spacemacs/set-leader-keys "$s" 'gptel-send)
 
   (defun absorb-weird-parens-at-the-end-of-user-config ()
     (print "auto generated stuff below was messing up my user config parens.")))
